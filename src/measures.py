@@ -32,8 +32,8 @@ def calculate_ccc(y_pred, y_true):
 
 def calculate_rmse(y_pred, y_true):
 	# Assuming y_pred and y_true are torch tensors
-	y_pred = y_pred.view(-1)
-	y_true = y_true.view(-1)
+	#y_pred = y_pred.view(-1)
+	#y_true = y_true.view(-1)
 	
 	mse = F.mse_loss(y_pred, y_true)
 	rmse = torch.sqrt(mse)
@@ -42,22 +42,27 @@ def calculate_rmse(y_pred, y_true):
 def measure_fairness(final_labels, final_preds, gender_arr):
 	# Get the final_labels_dev where stats_dev score is 0
 	final_labels_dev_female = final_labels[1][gender_arr[1][:, 0] == 0]
-	final_labels_test_female = final_labels[2][gender_arr[2][:, 0] == 0]
 	final_labels_dev_male = final_labels[1][gender_arr[1][:, 0] == 1]
-	final_labels_test_male = final_labels[2][gender_arr[2][:, 0] == 1]
-	
 	final_pred_dev_female = final_preds[0][gender_arr[1][:, 0] == 0]
 	final_pred_dev_male = final_preds[0][gender_arr[1][:, 0] == 1]
 	
-	final_pred_test_female = final_preds[1][gender_arr[2][:, 0] == 0]
-	final_pred_test_male = final_preds[1][gender_arr[2][:, 0] == 1]
-	
 	female_dev = calculate_ccc(final_pred_dev_female, final_labels_dev_female)
 	male_dev = calculate_ccc(final_pred_dev_male, final_labels_dev_male)
-	female_test = calculate_ccc(final_pred_test_female, final_labels_test_female)
-	male_test = calculate_ccc(final_pred_test_male, final_labels_test_male)
 	fairness_dev = female_dev / male_dev
-	fairness_test = female_test / male_test
+	
+	if (len(final_labels)) > 2:
+		final_labels_test_female = final_labels[2][gender_arr[2][:, 0] == 0]
+		final_labels_test_male = final_labels[2][gender_arr[2][:, 0] == 1]
+		final_pred_test_female = final_preds[1][gender_arr[2][:, 0] == 0]
+		final_pred_test_male = final_preds[1][gender_arr[2][:, 0] == 1]
+		
+		female_test = calculate_ccc(final_pred_test_female, final_labels_test_female)
+		male_test = calculate_ccc(final_pred_test_male, final_labels_test_male)
+		fairness_test = female_test / male_test
+	else:
+		fairness_test= 'Nan'
+		female_test =  'Nan'
+		male_test = 'Nan'
 	
 	hyperparameters = {
 		'fairness-dev': fairness_dev,
