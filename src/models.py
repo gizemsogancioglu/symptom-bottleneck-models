@@ -121,6 +121,14 @@ class JointBottleneckModel(nn.Module):
 		loss = ((1 - weight) * concept_loss) + ((weight) * final_loss)
 		return loss
 
+def compute_concept_ccc(concept_pred, concept_label):
+	concept_cccs = []
+	for i in range(8):
+		concept_ccc = ccc_criterion(concept_pred[:, i], concept_label[:, i])
+		concept_cccs.append(concept_ccc)
+	concept_cccs_tensor = torch.stack(concept_cccs)
+	average_ccc = torch.mean(concept_cccs_tensor)
+	return average_ccc
 
 def set_random_seed(seed):
 	torch.manual_seed(seed)
@@ -162,7 +170,9 @@ def experiment(features, gender, concept_labels, final_labels, lam, type='joint'
 	num_epochs = 100
 	best_ccc = 0
 	patience_counter = 0
+	best_loss = 1
 	
+	best_model_state = 0
 	for epoch in range(num_epochs):
 		model.train()
 		optimizer.zero_grad()
@@ -199,12 +209,14 @@ def experiment(features, gender, concept_labels, final_labels, lam, type='joint'
 					final_pred_dev = torch.sum(concept_preds_dev, dim=1).unsqueeze(1)
 					final_pred_test = torch.sum(concept_preds_test, dim=1).unsqueeze(1)
 			
-			final_ccc = calculate_ccc(final_pred_dev, final_labels[1])
-			scheduler.step(1 - final_ccc)
-			# final_ccc_ = ((1 - lam) * (concept_ccc)) + ((lam) * (final_ccc))
+			final_score = calculate_ccc(final_pred_dev, final_labels[1])
+		
+			#if type == 'joint':
+			#	final_score = 1 - (model.get_loss(final_pred_dev, final_labels[1], concept_preds_dev, concept_labels[1], lam)).item()
+			scheduler.step(1-final_score)
 			
-			if final_ccc > best_ccc:
-				best_ccc = final_ccc
+			if final_score > best_ccc:
+				best_ccc = final_score
 				patience_counter = 0  # Reset the patience counter
 				best_hyperparameters.update(measure_fairness(final_labels, [final_pred_dev, final_pred_test], gender))
 				if (type == 'joint') or (type == 'symptom') or (type == 'sequential-2'):
@@ -213,16 +225,16 @@ def experiment(features, gender, concept_labels, final_labels, lam, type='joint'
 				hyperparameters = {
 					'learning_rate': optimizer.param_groups[0]['lr'],
 					'lambda': lam,
-					'dev_ccc': final_ccc,
+					'dev_ccc': calculate_ccc(final_pred_dev, final_labels[1]),
 					'test_ccc': calculate_ccc(final_pred_test, final_labels[2]) if len(final_labels) == 3 else None,
 					'dev_rmse': calculate_rmse(final_pred_dev, final_labels[1]).item(),
 					'test_rmse': calculate_rmse(final_pred_test, final_labels[2]).item() if len(
 						final_labels) == 3 else None,
 					'epoch': epoch,
+					'loss': 1 - final_score
 				}
 				best_hyperparameters.update(hyperparameters)
 				best_model_state = copy.deepcopy(model.state_dict())
-			
 			else:
 				patience_counter += 1  # Increment the patience counter
 		if patience_counter >= 10:
@@ -234,7 +246,7 @@ def experiment(features, gender, concept_labels, final_labels, lam, type='joint'
 
 symptoms = ['PHQ_8NoInterest', 'PHQ_8Depressed', 'PHQ_8Sleep', 'PHQ_8Tired', 'PHQ_8Appetite',
             'PHQ_8Failure', 'PHQ_8Concentrating', 'PHQ_8Moving']
-scores = ['dev_ccc', 'test_ccc', 'dev_rmse', 'test_rmse', 'fairness-dev',
+scores = ['loss', 'dev_ccc', 'test_ccc', 'dev_rmse', 'test_rmse', 'fairness-dev',
           'fairness-test', 'female-dev', 'male-dev', 'female-test', 'male-test']
 symptoms_scores = ['concept_ccc_symptom0', 'concept_ccc_symptom1',
                    'concept_ccc_symptom2', 'concept_ccc_symptom3', 'concept_ccc_symptom4',
@@ -266,7 +278,6 @@ def seq_experiment():
 	features, gender, concept_labels, final_labels = convert_data(X, y, gender_arr)
 	
 	results = []
-	average_result = 0
 	for seed in [0, 1, 2, 3, 4]:
 		set_random_seed(seed)
 		method_type = 'sequential-1'
@@ -292,15 +303,14 @@ if __name__ == "__main__":
 	input_dim = X[0].shape[1]  # Input feature dimension from the dataframe
 	concept_dim = y[0].shape[1]  # Number of concepts from the dataframe
 	output_dim = 1  # Final label is a single continuous value (sum of symptoms)
-	# # Define loss and optimizer
 	len_stats = 1
-	method_type = 'sequential'
+	method_type = 'joint'
 	
 	if method_type == 'sequential':
 		seq_experiment()
 	elif (method_type == 'standard') or (method_type == 'symptom') or (method_type == 'joint'):
 		res = collections.defaultdict(list)
-		for lam in [0, 0.5, 0.7, 0.75, 0.8, 0.9, 0.95]:
+		for lam in [0, 0.5, 0.6, 0.7, 0.8, 0.9]:
 			results = []
 			for seed in [0, 1, 2, 3, 4]:
 				set_random_seed(seed)
